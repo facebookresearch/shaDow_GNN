@@ -1,0 +1,31 @@
+# This is the global configuration
+data:
+  dir: 
+    local: ./data
+  metric:
+    flickr: accuracy
+    reddit: accuracy
+    yelp: f1
+    arxiv: accuracy_ogb
+    products: accuracy_ogb
+    papers100M: accuracy_ogb
+algorithm:
+  sampler:
+    deterministic:
+      - ppr
+    stochastic:
+      - khop
+device:
+  gpu:              # optional. no need this entry if your machine does not have GPU
+    count: 1
+    mem_limit: 3    # GB: not used for now. 
+  cpu:
+    max_threads: 20
+  software:
+    os: linux       # windows / linux
+logging:
+  logger: logging_base.LoggerBase
+  dir: 
+    local: ./logs
+  ignore_config_name: 
+    - toy.yml

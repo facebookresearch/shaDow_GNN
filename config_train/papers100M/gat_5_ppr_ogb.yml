@@ -1,0 +1,46 @@
+data:
+  to_undirected: True
+  transductive: True
+  norm_feat: False
+architecture:
+  dim: 512
+  aggr: gat
+  heads: 4
+  loss: softmax
+  num_layers: 5
+  act: elu
+  use_label: none
+  feature_augment: hops
+  feature_smoothen: none
+  label_smoothen: none
+  residue: max
+  pooling: max
+hyperparameter:
+  end: 30
+  lr: 0.0002
+  dropout: 0.3
+  dropedge: 0.1
+  batch_size: 64
+sampler:
+  - method: ppr
+    phase: train
+    k: [200]
+    threshold: [0.01]
+    epsilon: [1e-5]
+
+# Accuracy on 10 runs without fixing any random seeds. 
+
+#       Validation    Test
+#  0    0.70083       0.66497
+#  1    0.70062       0.66331
+#  2    0.70225       0.66488
+#  3    0.70331       0.66848
+#  4    0.70291       0.66739
+#  5    0.70224       0.66376
+#  6    0.70247       0.66523
+#  7    0.70026       0.66437
+#  8    0.70309       0.66665
+#  9    0.70146       0.66366
+# ---------------------------
+# mean  0.7019        0.6653
+# std   0.0011        0.0017

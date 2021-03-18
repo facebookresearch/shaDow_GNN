@@ -1,0 +1,28 @@
+data:
+  to_undirected: True
+  transductive: True
+  norm_feat: False
+architecture:
+  dim: 512
+  aggr: sage
+  loss: softmax
+  num_layers: 5
+  act: elu
+  use_label: none
+  feature_augment: hops
+  feature_smoothen: none
+  label_smoothen: none
+  residue: max
+  pooling: max
+hyperparameter:
+  end: 30
+  lr: 0.0002
+  dropout: 0.3
+  dropedge: 0.1
+  batch_size: 64
+sampler:
+  - method: ppr
+    phase: train
+    k: [200]
+    threshold: [0.01]
+    epsilon: [1e-5]
