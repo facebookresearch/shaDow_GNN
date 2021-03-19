@@ -68,7 +68,7 @@ def load_data(prefix, dataset, config_data, os_='linux'):
             adj_train = adj_full
             fill_bin_adj_dict(TRAIN, 'full', 'raw')
         else:
-            adj_train = load_adj(prefix, dataset, 'raw', 'train')
+            adj_train = load_adj(prefix_l, dataset, 'raw', 'train')
             assert set(adj_train.nonzero()[0]).issubset(set(node_set[TRAIN]))
             fill_bin_adj_dict(TRAIN, 'train', 'raw')
 

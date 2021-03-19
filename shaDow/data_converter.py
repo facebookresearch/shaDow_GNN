@@ -34,6 +34,7 @@ def _convert_saint2shadow(name_data, dir_shadow, dir_saint):
     adj_.indices = adj_.indices.astype(dtype, copy=False)
     sp.save_npz(dir_shadow.format('adj_full_raw.npz'), adj_)
     # adj_train.npz -> adj_train_raw.npz
+    adj_train = sp.load_npz(dir_saint.format('adj_train.npz'))
     if adj_train.data.min() == adj_train.data.max() == 1:
         adj_t_data = np.broadcast_to(np.ones(1, dtype=np.bool), adj_train.data.size)
     else:
@@ -53,7 +54,7 @@ def _convert_saint2shadow(name_data, dir_shadow, dir_saint):
                 TEST : np.asarray(role['te'], dtype=dtype)})    
     # class_map.json -> label_full.npy
     with open(dir_saint.format('class_map.json')) as fc:
-        class_map = json.laod(fc)
+        class_map = json.load(fc)
     class_map = {int(k): v for k, v in class_map.items()}
     num_nodes = adj_full.shape[0]
     class_val_0 = next(iter(class_map.values()))
