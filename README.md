@@ -161,7 +161,7 @@ where the `*.yml` file specifies the GNN architecture, sampler parameters and ot
     * `final.csv`: CSV file logging the final accuracy on the full train / valid / test sets. 
     * pytorch checkpoint: the model weights and optimizer states. 
 
-## Reproducing the results
+## Reproducing the results (we are still keep improving the accuracy)
 
 We first describe the command for a single run. At the end of this section, we show the wrapper script for repeating the same configuration for 10 runs. 
 
