@@ -1,0 +1,45 @@
+data:
+  transductive: True
+architecture:
+  dim: 512
+  aggr: gat
+  heads: 4
+  loss: softmax
+  num_layers: 5
+  act: prelu
+  feature_augment: none
+  feature_smoothen: none
+  use_label: no_valid
+  label_smoothen: ppr--concat-0.8
+  residue: max
+  pooling: max
+hyperparameter:
+  end: 30
+  lr: 0.001
+  dropout: 0.4
+  dropedge: 0.1
+  batch_size: 128
+sampler:
+  - method: full
+    phase: preprocess
+  - method: ppr
+    phase: train
+    k: [150]
+    epsilon: [1e-5]
+
+# 10 runs
+# Test acc    Valid acc
+# 0.82042     0.93182
+# 0.82222     0.93131
+# 0.81812     0.93248
+# 0.81938     0.93139
+# 0.81620     0.93248
+# 0.81767     0.93157
+# 0.82103     0.93136
+# 0.81996     0.93220
+# 0.81805     0.93269
+# 0.82686     0.93147
+# mean
+# 0.8200      0.9319
+# std
+# 0.0028      0.0005
