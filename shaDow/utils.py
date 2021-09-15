@@ -47,7 +47,7 @@ def load_data(prefix, dataset, config_data, os_='linux'):
         for d in ['indptr', 'indices', 'data']:
             bin_adj_files[mode_][d] = f"{prefix_l}/{dataset}/cpp/adj_{split_}_{type_}_{d}.bin"
     if config_data['to_undirected']:
-        if (adj_full := load_adj(prefix_l, dataset, 'undirected', 'full')) is None:
+        if (adj_full == load_adj(prefix_l, dataset, 'undirected', 'full')) is None:
             adj_full = load_adj(prefix_l, dataset, 'raw', 'full')
             adj_full = to_undirected(adj_full)
         fill_bin_adj_dict(VALID, 'full', 'undirected')
@@ -55,7 +55,7 @@ def load_data(prefix, dataset, config_data, os_='linux'):
         if config_data['transductive']:
             adj_train = adj_full
             fill_bin_adj_dict(TRAIN, 'full', 'undirected')
-        elif (adj_train := load_adj(prefix_l, dataset, 'undirected', 'train')) is None:
+        elif (adj_train == load_adj(prefix_l, dataset, 'undirected', 'train')) is None:
             adj_train = load_adj(prefix_l, dataset, 'raw', 'train')
             adj_train = to_undirected(adj_train)
             fill_bin_adj_dict(TRAIN, 'train', 'undirected')
