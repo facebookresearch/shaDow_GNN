@@ -4,6 +4,8 @@ Hanqing Zeng, Muhan Zhang, Yinglong Xia, Ajitesh Srivastava, Andrey Malevich, Ra
 
 [arxiv paper](https://arxiv.org/abs/2012.01380)
 
+**News**: shaDow-GNN paper accepted to NeurIPS'21!
+
 ## Overview
 
 We have implemented shaDow-GNN as a general and powerful pipeline for graph representation learning. The training of shaDow-GNN can be abstracted as three major steps: 
