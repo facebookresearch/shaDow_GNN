@@ -7,6 +7,7 @@ Hanqing Zeng, Muhan Zhang, Yinglong Xia, Ajitesh Srivastava, Andrey Malevich, Ra
 ## News
 * shaDow-GNN paper accepted to **NeurIPS'21** (updated title: Decoupling the Depth and Scope of Graph Neural Networks; camera ready coming soon)!
 * We thank the **Pytorch Geometric** team for including the shaDow [k-hop sampler](https://pytorch-geometric.readthedocs.io/en/2.0.0/modules/loader.html?#torch_geometric.loader.ShaDowKHopSampler) in their library!
+* Major updates to be released this month (Nov 2021). 
 
 ## Overview
 
