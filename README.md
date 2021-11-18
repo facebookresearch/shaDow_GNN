@@ -1,8 +1,8 @@
-# Deep GNN, Shallow Sampling
+# Decoupling the Depth and Scope of Graph Neural Networks
 
 Hanqing Zeng, Muhan Zhang, Yinglong Xia, Ajitesh Srivastava, Andrey Malevich, Rajgopal Kannan, Viktor Prasanna, Long Jin, Ren Chen
 
-[arxiv paper](https://arxiv.org/abs/2012.01380)
+[Pre-proceeding version](https://papers.nips.cc/paper/2021/file/a378383b89e6719e15cd1aa45478627c-Paper.pdf)
 
 ## News
 * shaDow-GNN paper accepted to **NeurIPS'21** (updated title: Decoupling the Depth and Scope of Graph Neural Networks; camera ready coming soon)!
