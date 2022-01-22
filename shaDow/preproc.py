@@ -1,3 +1,7 @@
+# Copyright (c) Facebook, Inc. and its affiliates.
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the root directory of this source tree.
+
 from graph_engine.frontend import TRAIN, VALID, TEST, MODE2STR
 import numpy as np
 from graph_engine.frontend.graph_utils import coo_scipy2torch, adj_norm_sym, adj_norm_rw
