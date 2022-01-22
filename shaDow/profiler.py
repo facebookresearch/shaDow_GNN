@@ -81,19 +81,41 @@ class SubgraphProfiler:
                     self.value_metrics[md][e][m] = []      # clear after summarizing
         self.subgraph_batch = deque()
         return ret
+
+    def _print_summary_hops(self, hop_stat: torch.Tensor, mode: str):
+        if len(hop_stat) == 0:
+            print("NO HOP STAT COLLECTED")
+            return
+        sep_str = "    "
+        title = f"{'hops':>6s}{sep_str}"\
+            + sep_str.join(f"{k:>6d}" for k in range(hop_stat.size(0) - 1))\
+            + f"{sep_str}{'inf':>6s}"
+        raw_vals = f"{'vals':>6s}{sep_str}"\
+            + sep_str.join(f"{v:>6.2f}" for v in hop_stat[1:])\
+            + f"{sep_str}{hop_stat[0].item():>6.2f}"
+        denorm = (hop_stat[2:].sum() + hop_stat[0]).item()
+        norm_vals = f"{'ratio':>6s}{sep_str}"\
+            + f"{'--':>6s}{sep_str}"\
+            + sep_str.join(f"{v/denorm*100:>6.2f}" for v in hop_stat[2:])\
+            + f"{sep_str}{hop_stat[0].item()/denorm*100:>6.2f}"
+        print("="*len(title))
+        print(title)
+        print("-"*len(title))
+        print(raw_vals)
+        print(norm_vals)
+        print("="*len(title))
     
     def print_summary(self):
         if len(self.metrics['running']) > 0 or len(self.metrics['global']) > 0:
             str_title = "SUMMARY OF SUBG PROFILES"
             print("=" * len(str_title))
             print(str_title)
-            print("=" * len(str_title))
         ret = self.summarize()
         for md in self.MODES:
             for e in range(self.num_ens):
                 for k, v in ret[md][e].items():
                     if k == 'hops':
-                        print(f'subgraph hops [{md}] hist\t{v}')
+                        self._print_summary_hops(v, md)
     
     def clear_metrics(self):
         self.metrics = {md: [] for md in self.MODES}
