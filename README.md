@@ -1,8 +1,13 @@
-# Deep GNN, Shallow Sampling
+# Decoupling the Depth and Scope of Graph Neural Networks
 
 Hanqing Zeng, Muhan Zhang, Yinglong Xia, Ajitesh Srivastava, Andrey Malevich, Rajgopal Kannan, Viktor Prasanna, Long Jin, Ren Chen
 
-[arxiv paper](https://arxiv.org/abs/2012.01380)
+[Pre-proceeding version](https://papers.nips.cc/paper/2021/file/a378383b89e6719e15cd1aa45478627c-Paper.pdf)
+
+## News
+* shaDow-GNN paper accepted to **NeurIPS'21** (updated title: Decoupling the Depth and Scope of Graph Neural Networks; camera ready coming soon)!
+* We thank the **Pytorch Geometric** team for including the shaDow [k-hop sampler](https://pytorch-geometric.readthedocs.io/en/2.0.0/modules/loader.html?#torch_geometric.loader.ShaDowKHopSampler) in their library!
+* Major updates to be released this month (Nov 2021). 
 
 ## Overview
 
@@ -227,3 +232,29 @@ Then go back to the shaDow-GNN root directory and compile the C++ sampler by
 ## License
 
 shaDow\_GNN is released under an MIT license. Find out more about it [here](https://github.com/facebookresearch/shaDow_GNN/blob/master/LICENSE).
+
+## Citation
+
+```
+@article{shadow_GNN,
+  author    = {Hanqing Zeng and
+               Muhan Zhang and
+               Yinglong Xia and
+               Ajitesh Srivastava and
+               Andrey Malevich and
+               Rajgopal Kannan and
+               Viktor K. Prasanna and
+               Long Jin and
+               Ren Chen},
+  title     = {Deep Graph Neural Networks with Shallow Subgraph Samplers},
+  journal   = {CoRR},
+  volume    = {abs/2012.01380},
+  year      = {2020},
+  url       = {https://arxiv.org/abs/2012.01380},
+  eprinttype = {arXiv},
+  eprint    = {2012.01380},
+  timestamp = {Fri, 04 Dec 2020 12:07:23 +0100},
+  biburl    = {https://dblp.org/rec/journals/corr/abs-2012-01380.bib},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+```
