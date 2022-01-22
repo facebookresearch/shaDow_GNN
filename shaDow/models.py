@@ -1,35 +1,37 @@
-# Copyright (c) Facebook, Inc. and its affiliates.
-# This source code is licensed under the MIT license found in the
-# LICENSE file in the root directory of this source tree.
-
 import shaDow.layers as layers
-from shaDow import TRAIN, VALID, TEST
+from graph_engine.frontend import TRAIN
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
+from typing import Dict, Any
+
+from shaDow.minibatch import OneBatchSubgraph
 
 
 class DeepGNN(nn.Module):
-    NAME2CLS = {"mlp"   : layers.MLP,
-                "gcn"   : layers.GCN,
-                "gin"   : layers.GIN,
-                "sage"  : layers.GraphSAGE,
-                "gat"   : layers.GAT,
-                "gatscat": layers.GATScatter,
-                "sgc"   : layers.MLPSGC,
-                "sign"  : layers.MLPSGC}
+    NAME2CLS = {
+        "mlp"   : layers.MLP,
+        "gcn"   : layers.GCN,
+        "gin"   : layers.GIN,
+        "sage"  : layers.GraphSAGE,
+        "gat"   : layers.GAT,
+        "gatscat": layers.GATScatter,
+        "sgc"   : layers.MLPSGC,
+        "sign"  : layers.MLPSGC
+    }
     def __init__(
-                self, 
-                dim_feat_raw, 
-                dim_feat_smooth, 
-                dim_label_raw, 
-                dim_label_smooth, 
-                arch_gnn, 
-                aug_feat,
-                num_ensemble, 
-                train_params
-            ):
+        self, 
+        dim_feat_raw: int, 
+        dim_feat_smooth: int, 
+        dim_label_raw: int, 
+        dim_label_smooth: int, 
+        arch_gnn: Dict[str, Any], 
+        aug_feat,
+        num_ensemble: int, 
+        train_params: Dict[str, Any],
+        prediction_task: str
+    ):
         """
         Build the multi-layer GNN architecture.
 
@@ -43,8 +45,11 @@ class DeepGNN(nn.Module):
             None
         """
         super().__init__()
+        assert prediction_task in {'link', 'node'}, "Only supports node classification and link prediction! "
+        self.prediction_task = prediction_task
         self.mulhead = 1
-        self.num_layers = arch_gnn["num_layers"]
+        self.num_gnn_layers = arch_gnn["num_layers"]
+        self.num_cls_layers = arch_gnn["num_cls_layers"]
         self.dropout, self.dropedge = train_params["dropout"], train_params['dropedge']
         self.mulhead = int(arch_gnn["heads"])       # only useful for GAT
 
@@ -56,37 +61,58 @@ class DeepGNN(nn.Module):
         self.num_classes = dim_label_raw
         self.dim_label_in = dim_label_smooth
         self.dim_feat_in = dim_feat_smooth
-        self.dim_hidden = arch_gnn['dim']
+        self.dim_hid = arch_gnn['dim']
         # build the model below
-        dim, act = arch_gnn['dim'], arch_gnn['act']
+        act, layer_norm = arch_gnn['act'], arch_gnn['layer_norm']
+        self.feat_aug_ops = arch_gnn['feature_augment_ops']
         self.aug_layers, self.conv_layers, self.res_pool_layers = [], [], []
         for i in range(num_ensemble):
             # feat aug
+            dim_aug_add = 0
             if len(self.type_feature_augment) > 0:
-                self.aug_layers.append(nn.ModuleList(
-                    nn.Linear(_dim, self.dim_feat_in) for _, _dim in self.type_feature_augment
-                ))
+                _dim_aug_out = self.dim_feat_in if self.feat_aug_ops == 'sum' else self.dim_hid
+                dim_aug_add += 0 if self.feat_aug_ops == 'sum' else _dim_aug_out
+                self.aug_layers.append(
+                    nn.ModuleList(
+                        nn.Linear(_dim, _dim_aug_out) for _, _dim in self.type_feature_augment
+                    )
+                )
             # graph convs
             convs = []
             if i == 0 or not self.branch_sharing:
-                for j in range(arch_gnn['num_layers']):
-                    cls_gconv = DeepGNN.NAME2CLS[arch_gnn['aggr']]
-                    dim_in = (self.dim_feat_in + self.dim_label_in) if j == 0 else dim
-                    convs.append(cls_gconv(dim_in, dim, dropout=self.dropout, act=act, mulhead=self.mulhead))
+                for j in range(self.num_gnn_layers):
+                    dim_in = (self.dim_feat_in + self.dim_label_in + dim_aug_add) if j == 0 else self.dim_hid
+                    layer_gconv = DeepGNN.NAME2CLS[arch_gnn['aggr']](
+                        dim_in, 
+                        self.dim_hid, 
+                        dropout=self.dropout, 
+                        act=act, 
+                        norm=layer_norm, 
+                        mulhead=self.mulhead
+                    )
+                    convs.append(layer_gconv)
                 self.conv_layers.append(nn.Sequential(*convs))
             else:       # i > 0 and branch_sharing
                 self.conv_layers.append(self.conv_layers[-1])
             # skip-pooling layer
             type_res = arch_gnn['residue'].lower()
+            # TODO re-structure yaml config so that pooling params become a dict
             type_pool = arch_gnn['pooling'].split('-')[0].lower()
-            cls_res_pool = layers.ResPool
             args_pool = {}
             if type_pool == 'sort':
                 args_pool['k'] = int(arch_gnn['pooling'].split('-')[1])
-            self.res_pool_layers.append(
-                cls_res_pool(dim, dim, arch_gnn['num_layers'], type_res, type_pool,
-                    dropout=self.dropout, act=act, args_pool=args_pool
-                ))
+            layer_res_pool = layers.ResPool(
+                self.dim_hid, 
+                self.dim_hid, 
+                self.num_gnn_layers, 
+                type_res, 
+                type_pool, 
+                dropout=self.dropout,
+                act=act, 
+                args_pool=args_pool, 
+                prediction_task=self.prediction_task
+            )
+            self.res_pool_layers.append(layer_res_pool)
         if len(self.aug_layers) > 0:
             self.aug_layers = nn.ModuleList(self.aug_layers)
         self.conv_layers = nn.ModuleList(self.conv_layers)
@@ -95,9 +121,25 @@ class DeepGNN(nn.Module):
         if num_ensemble == 1:
             self.ensembler = layers.EnsembleDummy()
         else:
-            self.ensembler = layers.EnsembleAggregator(dim, dim, num_ensemble, dropout=self.dropout, 
-                        type_dropout=train_params["ensemble_dropout"], act=arch_gnn["ensemble_act"])
-        self.classifier = DeepGNN.NAME2CLS['mlp'](dim, self.num_classes, act='I', dropout=0.)
+            self.ensembler = layers.EnsembleAggregator(
+                self.dim_hid, 
+                self.dim_hid, 
+                num_ensemble, 
+                dropout=self.dropout, 
+                type_dropout=train_params["ensemble_dropout"], 
+                act=arch_gnn["ensemble_act"]
+            )
+        _norm_type = 'norm_feat' if self.prediction_task == 'node' else 'none'
+        # (multi-layer) classifier: by default, we set number of MLP classifier layers to be 1
+        self.classifier = []
+        for i in range(self.num_cls_layers):
+            if i < self.num_cls_layers - 1:
+                _kwargs = {'dim_out': self.dim_hid, 'act': act, 'dropout': self.dropout}
+            else:
+                _kwargs = {'dim_out': self.num_classes, 'act': 'I', 'dropout': 0.}
+            _kwargs.update({'dim_in': self.dim_hid, 'norm': _norm_type})
+            self.classifier.append(DeepGNN.NAME2CLS['mlp'](**_kwargs))
+        self.classifier = nn.Sequential(*self.classifier)
         # ---- optimizer, etc. ----
         self.lr = train_params["lr"]
         self.sigmoid_loss = arch_gnn["loss"] == "sigmoid"
@@ -113,30 +155,41 @@ class DeepGNN(nn.Module):
         """
         if self.sigmoid_loss:
             assert preds.shape == labels.shape
-            return torch.nn.BCEWithLogitsLoss()(preds, labels) * preds.shape[1]
+            return torch.nn.BCEWithLogitsLoss()(preds, labels.type(preds.dtype)) * preds.shape[1]
         else:
             if len(labels.shape) == 2:      # flatten to 1D
                 labels = torch.max(labels, axis=1)[1]       # this can handle both bool and float types
             return torch.nn.CrossEntropyLoss()(preds, labels)
 
 
-    def forward(self, mode, feat_ens, adj_ens, target_ens, 
-                size_subg_ens, feat_aug_ens, dropedge):
+    def forward(
+        self, 
+        mode, 
+        feat_ens, 
+        adj_ens, 
+        target_ens, 
+        size_subg_ens, 
+        feat_aug_ens, 
+        dropedge
+    ):
         num_ensemble = len(feat_ens)
         emb_subg_ens = []
         for i in range(num_ensemble):
-            if self.dim_label_in > 0 and mode == TRAIN:     # TODO: mask out valid nodes to better terminate
+            if self.dim_label_in > 0 and mode == TRAIN:
                 feat_ens[i][target_ens[i], -self.dim_label_in:] = 0
             # feature augment
             if len(self.type_feature_augment) > 0:
                 for ia, (ta, _dim) in enumerate(self.type_feature_augment):
-                    feat_ens[i][:, :self.dim_feat_in] += self.aug_layers[i][ia](feat_aug_ens[i][ta])
-            assert self.dim_label_in + self.dim_feat_in == feat_ens[i].shape[1]
+                    feat_aug_emb = self.aug_layers[i][ia](feat_aug_ens[i][ta])
+                    if self.feat_aug_ops == 'sum':
+                        feat_ens[i][:, :self.dim_feat_in] += feat_aug_emb
+                    else:
+                        feat_ens[i] = torch.cat([feat_ens[i], feat_aug_emb], dim=1).to(feat_ens[i].device)
             # main propagation
             xjk = []
             xmd = (feat_ens[i], adj_ens[i], False, dropedge)
             for md in self.conv_layers[i]:
-                xmd = md(xmd)
+                xmd = md(xmd, sizes_subg=size_subg_ens[i])
                 xjk.append(xmd[0])
             # residue and pooling
             emb_subg_i = self.res_pool_layers[i](xjk, target_ens[i], size_subg_ens[i])
@@ -149,19 +202,13 @@ class DeepGNN(nn.Module):
     def predict(self, preds):
         return nn.Sigmoid()(preds) if self.sigmoid_loss else F.softmax(preds, dim=1)
 
-
-    def step(self, mode, status, adj_ens, feat_ens, label_ens, 
-             size_subg_ens, target_ens, feat_aug_ens=None):
+    def step(self, mode, status, batch_data: OneBatchSubgraph):
         assert status in ['running', 'final']
-        args_forward_common = {
-            "feat_ens"  : feat_ens,
-            "adj_ens"   : adj_ens,
-            "target_ens": target_ens,
-            "size_subg_ens" : size_subg_ens,
-            "feat_aug_ens"  : feat_aug_ens
-        }
-        label_targets = label_ens[0][target_ens[0]]
-        if len(label_targets.shape) == 1:
+        args_forward_common = batch_data.to_dict(
+            {"feat_ens", "adj_ens", "target_ens", "size_subg_ens", "feat_aug_ens"}
+        )
+        label_targets = batch_data.label
+        if len(label_targets.shape) == 1 and self.num_classes > 1:
             label_targets = F.one_hot(label_targets.to(torch.int64), num_classes=self.num_classes)
         if mode == TRAIN and status == 'running':
             self.train()
@@ -177,11 +224,13 @@ class DeepGNN(nn.Module):
                 preds, emb_ens = self(mode, dropedge=0., **args_forward_common)
                 loss = self._loss(preds, label_targets)
         assert preds.shape[0] == label_targets.shape[0]
-        return {'batch_size': preds.shape[0],
-                'loss'      : loss,
-                'labels'    : label_targets,
-                'preds'     : self.predict(preds),
-                'emb_ens'   : emb_ens}
+        return {
+            'batch_size': preds.shape[0],
+            'loss'      : loss,
+            'labels'    : label_targets,
+            'preds'     : self.predict(preds),
+            'emb_ens'   : emb_ens
+        }
 
     def calc_complexity_step(self, adj_ens, feat_ens, sizes_subg_ens):
         """
@@ -195,7 +244,10 @@ class DeepGNN(nn.Module):
                 for ia, _ in enumerate(self.type_feature_augment): # this does not change feat dim
                     ops += np.prod(list(self.aug_layers[i][ia].weight.shape)) * feat_ens[i].shape[0]
             dims_respool = []
-            dims_conv = (layers.Dims_X(*(feat_ens[i].shape)), layers.Dims_adj(adj_ens[i].shape[0], adj_ens[i].size))
+            dims_conv = (
+                layers.Dims_X(*(feat_ens[i].shape)), 
+                layers.Dims_adj(adj_ens[i].shape[0], adj_ens[i].size)
+            )
             for md in self.conv_layers[i]:
                 dims_conv, _ops = md.complexity(*dims_conv)
                 dims_respool.append(dims_conv[0])

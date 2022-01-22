@@ -9,6 +9,8 @@ data:
     arxiv: accuracy_ogb
     products: accuracy_ogb
     papers100M: accuracy_ogb
+    collab: hits50
+    ppa: hits100
 algorithm:
   sampler:
     deterministic:
@@ -24,7 +26,9 @@ device:
   software:
     os: linux       # windows / linux
 logging:
-  logger: logging_base.LoggerBase
+  logger: 
+    name: logging_base.LoggerBase
+    no_server: False
   dir: 
     local: ./logs
   ignore_config_name: 

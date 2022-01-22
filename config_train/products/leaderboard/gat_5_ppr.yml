@@ -1,0 +1,28 @@
+data:
+  transductive: True
+architecture:
+  dim: 512
+  aggr: gat
+  heads: 4
+  loss: softmax
+  num_layers: 5
+  act: relu
+  feature_augment: none
+  feature_smoothen: none
+  use_label: no_valid
+  label_smoothen: ppr--concat-0.8
+  residue: max
+  pooling: max
+hyperparameter:
+  end: 35
+  lr: 0.001
+  dropout: 0.35
+  dropedge: 0.1
+  batch_size: 128
+sampler:
+  - method: full
+    phase: preprocess
+  - method: ppr
+    phase: train
+    k: [150]
+    epsilon: [1e-5]

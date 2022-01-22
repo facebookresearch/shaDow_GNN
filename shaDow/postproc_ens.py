@@ -1,7 +1,3 @@
-# Copyright (c) Facebook, Inc. and its affiliates.
-# This source code is licensed under the MIT license found in the
-# LICENSE file in the root directory of this source tree.
-
 import time
 import torch
 from torch import nn
@@ -9,21 +5,21 @@ import torch.nn.functional as F
 import numpy as np
 import shaDow.layers as layers
 from shaDow.models import DeepGNN
-from shaDow import TRAIN, VALID, TEST
-from typing import List, get_type_hints, Union
+from graph_engine.frontend import TRAIN, VALID, TEST
+from typing import List
 import itertools
 
 
 
 class ModelPostEns(nn.Module):
     def __init__(
-                self, 
-                dim_in, 
-                num_classes, 
-                arch_gnn, 
-                num_ensemble,
-                config_param
-            ):
+        self, 
+        dim_in, 
+        num_classes, 
+        arch_gnn, 
+        num_ensemble,
+        config_param
+    ):
         super().__init__()
         self.dim_in = dim_in
         self.dim_hid = arch_gnn['dim']
@@ -35,9 +31,13 @@ class ModelPostEns(nn.Module):
             self.ensembler = layers.EnsembleDummy()
         else:       # you may also support other types
             self.ensembler = layers.EnsembleAggregator(
-                    self.dim_in, self.dim_hid, num_ensemble, act=act, 
-                    dropout=config_param['dropout'], type_dropout=config_param['ensemble_dropout']
-                )       # NOTE the output dim is dim_in, not dim_hid
+                self.dim_in, 
+                self.dim_hid, 
+                num_ensemble, 
+                act=act, 
+                dropout=config_param['dropout'], 
+                type_dropout=config_param['ensemble_dropout']
+            )       # NOTE the output dim is dim_in, not dim_hid
         self.classifier = DeepGNN.NAME2CLS['mlp'](self.dim_in, self.num_classes, act='I', dropout=0.)
         self.sigmoid_loss = arch_gnn['loss'] == 'sigmoid'
         self.optimizer = torch.optim.Adam(self.parameters(), lr=config_param['lr'])
@@ -98,6 +98,7 @@ class MinibatchPostEns:
         """
         Mimic the .to() function of torch.nn.Module
         """
+        # TODO: set tensor dtype by torch.get_default_dtype
         for i in range(len(self.emb_l)):
             if type(self.emb_l[i]) == np.ndarray:
                 self.emb_l[i] - torch.from_numpy(self.emb_l[i])
@@ -153,7 +154,7 @@ def ensemble(node_set, emb_l, label, config_arch, config_param, logger, device):
     acc_ret = {}
     for md in [TRAIN, VALID, TEST]:
         acc_ret[md] = one_epoch_ens(ep + 1, md, model, minibatch, logger, 'final')
-    logger.validate_result()
+    logger.validate_result(stochastic_sampler={md: False for md in [TRAIN, VALID, TEST]})
     return {md: a['accuracy'] for md, a in acc_ret.items()}
     
 

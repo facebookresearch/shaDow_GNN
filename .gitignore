@@ -1,0 +1,4 @@
+.history/*
+data
+logs
+__pycache__

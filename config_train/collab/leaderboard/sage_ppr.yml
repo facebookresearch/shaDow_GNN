@@ -1,0 +1,46 @@
+data:
+  to_undirected: True
+  transductive: True
+architecture:
+  dim: 256
+  aggr: sage
+  loss: sigmoid
+  num_layers: 5
+  act: elu
+  feature_augment: drnls
+  feature_augment_ops: concat
+  residue: concat
+  pooling: sort-25
+hyperparameter:
+  end: 75
+  lr: 2e-5
+  dropout: 0.25
+  dropedge: 0.1
+  batch_size: 16
+  percent_per_epoch:
+    train: 0.1
+    valid: 1
+    test: 1
+sampler:
+  - method: ppr_st
+    phase: train
+    k: [200]
+    threshold: [0.01]
+    epsilon: [1e-6]
+  
+
+# 10 runs:
+# best valid acc      best test acc       best val epoch
+#        0.65087            0.54817                   41
+#        0.65432            0.55093                   62
+#        0.65428            0.55242                   74
+#        0.65104            0.54700                   39
+#        0.65295            0.54963                   31
+#        0.65061            0.54614                    8
+#        0.65012            0.54631                   46
+#        0.65122            0.54849                   33
+#        0.65498            0.55171                   72
+#        0.65315            0.55073                   22
+# ------------------------------------------------------
+# avg:    0.6524             0.5492
+# std:    0.0017             0.0022

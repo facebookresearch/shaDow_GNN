@@ -1,0 +1,29 @@
+data:
+  to_undirected: True
+  transductive: True
+architecture:
+  dim: 256
+  aggr: sage
+  loss: softmax
+  num_layers: 5
+  act: elu
+  use_label: no_valid
+  feature_augment: hops
+  feature_smoothen: sym-2-concat
+  label_smoothen: none
+  residue: max
+  pooling: max
+hyperparameter:
+  end: 75
+  lr: 2e-5
+  dropout: 0.25
+  dropedge: 0.15
+  batch_size: 16
+sampler:
+  - method: full
+    phase: preprocess
+  - method: ppr
+    phase: train
+    k: [200]
+    threshold: [0.01]
+    epsilon: [1e-6]

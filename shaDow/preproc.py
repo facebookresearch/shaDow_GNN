@@ -1,11 +1,6 @@
-# Copyright (c) Facebook, Inc. and its affiliates.
-# This source code is licensed under the MIT license found in the
-# LICENSE file in the root directory of this source tree.
-
-from shaDow.minibatch import MinibatchShallowSampler
-from shaDow import TRAIN, VALID, TEST, MODE2STR
+from graph_engine.frontend import TRAIN, VALID, TEST, MODE2STR
 import numpy as np
-from shaDow.utils import adj_norm_sym, adj_norm_rw, coo_scipy2torch
+from graph_engine.frontend.graph_utils import coo_scipy2torch, adj_norm_sym, adj_norm_rw
 import torch
 import sys
 from tqdm import tqdm
@@ -15,13 +10,16 @@ class PreprocessGraph:
     def __init__(self, arch_gnn, minibatch_preproc, no_pbar):
         self.minibatch = minibatch_preproc
         self.arch_gnn = arch_gnn
-        self.is_transductive = minibatch_preproc.adj[TRAIN].size == minibatch_preproc.adj[TEST].size
+        self.is_transductive = minibatch_preproc.is_transductive
         self.no_pbar = no_pbar
 
     def _ppr(self, adj, signal, pbar, num_target, alpha, thres, itr_max):
         """
         Reference to APPNP method
         Here to be consistent with the C++ PPR sampler, our alpha is actually 1-alpha in APPNP
+        
+        In our C++ sampler, we compute PPR by local push style of algorithm. 
+        Here, we compute PPR by multiplication on the full adj matrix. 
         """
         alpha = 1 - alpha
         # initialize
@@ -38,21 +36,20 @@ class PreprocessGraph:
             if delta_change < thres:
                 break
         return Z
-        
 
     def _smooth_signals_subg(
-                self, 
-                adj, 
-                signal, 
-                target, 
-                order : int, 
-                pbar, 
-                type_norm : str, 
-                reduction_orders : str, 
-                args : dict,
-                add_self_edge : bool=True, 
-                is_normed : bool=False
-            ):
+        self, 
+        adj, 
+        signal, 
+        target, 
+        order: int, 
+        pbar, 
+        type_norm: str, 
+        reduction_orders: str, 
+        args: dict,
+        add_self_edge: bool=True, 
+        is_normed: bool=False
+    ):
         if not is_normed:
             if type_norm == 'sym':
                 adj_norm = adj_norm_sym(adj, add_self_edge=add_self_edge)
@@ -119,22 +116,20 @@ class PreprocessGraph:
         return signal_out, adj_norm
 
     def smooth_signals_fullg(
-                self, 
-                tag : str, 
-                signal, 
-                order : int, 
-                type_norm : str, 
-                reduction_orders : str, 
-                args : dict, 
-                add_self_edge : bool=True
-            ):
-        """ SGC / SIGN / APPNP
-        mode: full / subgraph
-        ops: concat / sum / replace
-        signals = self.minibatch.feat_full / self.get_label_raw()
+        self, 
+        tag: str, 
+        signal, 
+        order: int, 
+        type_norm: str, 
+        reduction_orders: str, 
+        args: dict, 
+        add_self_edge: bool=True
+    ):
+        """ SGC / SIGN / APPNP 
+        Smooth the node features for all target nodes in the full graph
         """
         N, F = signal.shape
-        assert reduction_orders in ['cat', 'concat', 'last', 'sum']
+        assert reduction_orders in {'cat', 'concat', 'last', 'sum'}
         if reduction_orders in ['cat', 'concat']:
             F_new = F + order * F
         else:
@@ -147,40 +142,64 @@ class PreprocessGraph:
                 pbar = tqdm(total=num_nodes_tqdm, leave=True, file=sys.stdout)
                 pbar.set_description(f"Smoothing {tag} for full graph")
             adj_ = self.minibatch.adj[TEST]
-            target_ = np.concatenate([self.minibatch.node_set[m] for m in [TRAIN, VALID, TEST]])
-            signal_smoothed, _ = self._smooth_signals_subg(adj_, signal, target_, order, 
-                                        pbar, type_norm, reduction_orders, args, add_self_edge=False)
+            # hardcode every node as target so that this can apply to link task as well
+            target_ = np.arange(adj_.indptr.size - 1)
+            signal_smoothed, _ = self._smooth_signals_subg(
+                adj_, 
+                signal, 
+                target_, 
+                order, 
+                pbar, 
+                type_norm, 
+                reduction_orders, 
+                args, 
+                add_self_edge=False
+            )
             signal_new[target_] = signal_smoothed.to(signal_new.device)
             if pbar is not None:
                 pbar.close()
-            print((f"Finished smoothing {tag}\tvariance: {signal.var():.4f} to {signal_new.var():.4f}"))
+            print(f"Finished smoothing {tag}\tvariance: {signal.var():.4f} to {signal_new.var():.4f}")
         else:
-            for m in [TRAIN, VALID, TEST]:      # for full SGC, return the full subgraph
+            for m in [TRAIN, VALID, TEST]:      # for full SGC, return the full graph as subgraph
                 self.minibatch.disable_cache(m)
                 self.minibatch.epoch_start_reset(0, m)
-                num_nodes_tqdm = self.minibatch.node_set[m].size * (order if type_norm != 'ppr' else args['itr_max'])
+                assert self.minibatch.prediction_task == 'node', 'For LINK task training, its preproc should still be NODE'
+                num_nodes_tqdm = self.minibatch.raw_entity_set[m].size * (order if type_norm != 'ppr' else args['itr_max'])
                 if not self.no_pbar:
                     pbar = tqdm(total=num_nodes_tqdm, leave=True, file=sys.stdout)
                     pbar.set_description(f"Smoothing {tag} {MODE2STR[m].upper()}")
                 while not self.minibatch.is_end_epoch(m):
-                    # TODO: not yet supporting subgraph ensemble in preproc
                     ret = self.minibatch.one_batch(mode=m, ret_raw_idx=True)
-                    _adj_sub, _target_sub, _idx_raw_sub = ret['adj_ens'][0], ret['target_ens'][0], ret['idx_raw'][0]
+                    assert ret.num_ens == 1, "not yet supporting subgraph ensemble in preproc"
+                    _adj_sub, _target_sub, _idx_raw_sub = ret.adj_ens[0], ret.target_ens[0], ret.idx_raw[0]
                     _signal_sub = signal[_idx_raw_sub]
                     _idx_writeback = _idx_raw_sub[_target_sub]
-                    signal_smoothed, _ = self._smooth_signals_subg(_adj_sub, _signal_sub, _target_sub, order, 
-                                                pbar, type_norm, reduction_orders, args, add_self_edge=False)
+                    signal_smoothed, _ = self._smooth_signals_subg(
+                        _adj_sub, 
+                        _signal_sub, 
+                        _target_sub, 
+                        order, 
+                        pbar, 
+                        type_norm, 
+                        reduction_orders, 
+                        args, 
+                        add_self_edge=False
+                    )
                     signal_new[_idx_writeback] = signal_smoothed.to(signal_new.device)
                 if pbar is not None:
                     pbar.close()
-                nodes_updated = self.minibatch.node_set[m]
+                nodes_updated = self.minibatch.raw_entity_set[m]
                 self.minibatch.epoch_end_reset(m)
-                print((f"Finished smoothing {tag} of {MODE2STR[m].upper()}\t"
-                    f"variance: {signal[nodes_updated].var():.4f} to {signal_new[nodes_updated].var():.4f}"))
+                print(
+                    (
+                        f"Finished smoothing {tag} of {MODE2STR[m].upper()}\t"
+                        f"variance: {signal[nodes_updated].var():.4f} to {signal_new[nodes_updated].var():.4f}"
+                    )
+                )
         print(f"(Order {order}) Full {tag} matrix variance changes from {signal.var():.4f} to {signal_new.var():.4f}")
         return signal_new
         
-    def prepare_raw_label(self, type_label : str):
+    def prepare_raw_label(self, type_label: str):
         assert type_label.lower() != 'none'
         num_nodes = self.minibatch.label_full.shape[0]
         if len(self.minibatch.label_full.shape) == 1:
@@ -192,7 +211,7 @@ class PreprocessGraph:
         feat_label = torch.zeros(num_nodes, num_cls).to(self.minibatch.feat_full.device)
         mode_node_set = [TRAIN] if type_label.lower() != 'all' else [TRAIN, VALID]
         for md in mode_node_set:
-            idx_fill = self.minibatch.node_set[md]
+            idx_fill = self.minibatch.raw_entity_set[md]
             if type(idx_fill) == np.ndarray:
                 idx_fill = torch.from_numpy(idx_fill).to(feat_label.device)
             if len(self.minibatch.label_full.shape) == 1:
@@ -220,7 +239,7 @@ class PreprocessGraph:
         dim_feat_smooth = feat_full_new.shape[1]
         # smooth labels
         if self.arch_gnn['use_label'].lower() != 'none':
-            assert self.is_transductive
+            assert self.is_transductive and self.minibatch.prediction_task == 'node'
             label_orig = self.prepare_raw_label(self.arch_gnn['use_label'])     # we only utilize train labels
             if self.arch_gnn['label_smoothen'].lower() != 'none':
                 type_norm, order, reduction_orders, args = self.f_decode_smoothen_config(self.arch_gnn['label_smoothen'])

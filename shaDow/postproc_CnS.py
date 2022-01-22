@@ -1,14 +1,10 @@
-# Copyright (c) Facebook, Inc. and its affiliates.
-# This source code is licensed under the MIT license found in the
-# LICENSE file in the root directory of this source tree.
-
 import numpy as np
 import torch
 import torch.nn.functional as F
 from dgl import function as fn
 from ogb.nodeproppred import DglNodePropPredDataset, Evaluator
-from typing import List, get_type_hints, Union
-from shaDow import TRAIN, VALID, TEST
+from typing import List
+from graph_engine.frontend import TRAIN, VALID, TEST
 
 
 n_node_feats, n_classes = 0, 0

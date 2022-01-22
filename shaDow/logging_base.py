@@ -1,28 +1,27 @@
-# Copyright (c) Facebook, Inc. and its affiliates.
-# This source code is licensed under the MIT license found in the
-# LICENSE file in the root directory of this source tree.
-
 import os, sys
 import torch
-from typing import List, get_type_hints, Union
-from dataclasses import dataclass, field, fields, InitVar
+from typing import List, Union
+from dataclasses import dataclass, field, InitVar
 import numpy as np
 from torch.autograd import Variable
 from shaDow.metric import METRICS, Metrics
 from tqdm import tqdm
-from shaDow import TRAIN, VALID, TEST, MODE2STR, STR2MODE
+from graph_engine.frontend import TRAIN, VALID, TEST, MODE2STR, STR2MODE
 
 import shutil
+import copy
 
-_bcolors = {'header'    : '\033[95m',
-            'blue'      : '\033[94m',
-            'green'     : '\033[92m',
-            'yellow'    : '\033[93m',
-            'red'       : '\033[91m',
-            'bold'      : '\033[1m',
-            'underline' : '\033[4m',
-            ''          : '\033[0m',
-            None        : ''}
+_bcolors = {
+    'header'    : '\033[95m',
+    'blue'      : '\033[94m',
+    'green'     : '\033[92m',
+    'yellow'    : '\033[93m',
+    'red'       : '\033[91m',
+    'bold'      : '\033[1m',
+    'underline' : '\033[4m',
+    ''          : '\033[0m',
+    None        : ''
+}
 
 
 @dataclass
@@ -36,14 +35,14 @@ class InfoBatch:
     preds               : List[np.ndarray] = field(default_factory=list)
     # book-keeper
     idx_batch           : int=-1
-    total_nodes         : int=-1        # set at the beginning of each epoch
+    total_entity        : int=-1        # set at the beginning of each epoch
     PERIOD_LOG          : int=1         # how many batches do we log the info once
     # summary
     names_data_fields = ['batch_size', 'loss', 'labels', 'preds']
     
-    def reset(self, total_nodes):
+    def reset(self, total_entity):
         self.idx_batch = -1
-        self.total_nodes = total_nodes
+        self.total_entity = total_entity
         for n in self.names_data_fields:
             setattr(self, n, [])
     
@@ -77,6 +76,9 @@ class InfoEpoch:
     accuracy            : List[float] = None
     f1mic               : List[float] = None
     f1mac               : List[float] = None
+    hits20              : List[float] = None
+    hits50              : List[float] = None
+    hits100             : List[float] = None
     # book-keeper
     idx_epoch           : int=-1
     epoch_best          : int=-1
@@ -84,6 +86,9 @@ class InfoEpoch:
     accuracy_max_hist   : float=-float('inf')       # max value before the current epoch
     f1mic_max_hist      : float=-float('inf')       # max value before the current epoch
     f1mac_max_hist      : float=-float('inf')       # max value before the current epoch
+    hits20_max_hist     : float=-float('inf')
+    hits50_max_hist     : float=-float('inf')
+    hits100_max_hist    : float=-float('inf')
     # summary
     names_acc_fields = None
     # Init-fields
@@ -101,83 +106,116 @@ class InfoEpoch:
         batch_np = np.array(info_batch.batch_size)
         _loss = (np.array(info_batch.loss) * batch_np).sum() / batch_np.sum()
         self.loss.append(_loss)
-        self.loss_min = min(_loss, self.loss_min_hist)
         y_true = np.concatenate(info_batch.labels)
         y_pred = np.concatenate(info_batch.preds)
         info_metrics = f_metric(y_true, y_pred)
         for k in self.names_acc_fields:
             getattr(self, k).append(info_metrics[k])
-        if len(self.loss) == 1:
-            return
-        else:
-            self.loss_min_hist = min(self.loss[-2], self.loss_min_hist)
-            for k in self.names_acc_fields:
-                setattr(self, f"{k}_max_hist", 
-                        max(getattr(self, k)[-2], getattr(self, f"{k}_max_hist"))
-                    )
+
+    def update_best_metrics(self, *args):
+        """args should be the best metric values returned from Metrics class"""
+        assert len(args) == len(self.names_acc_fields) + 1      # +1 for loss
+        self.loss_min_hist = args[0]        # loss and acc are all averaged over the window
+        for i, k in enumerate(self.names_acc_fields):
+            setattr(self, f'{k}_max_hist', args[i + 1])
         
-    def assert_valid(self):
+    def assert_valid(self, mode, metric_term=None, window_size=None, stochastic_sampler=False):
         l = len(self.loss)
         assert l == self.idx_epoch + 1
         for n in self.names_acc_fields:
             assert l == len(getattr(self, n))
-        assert self.idx_epoch >= 0
-        assert self.epoch_best <= self.idx_epoch
-        if l > 1:
-            assert self.loss_min_hist == min(self.loss[:-1])
+        assert self.idx_epoch >= 0 and self.epoch_best <= self.idx_epoch
+        if stochastic_sampler:
+            return
+        if l > 1 and window_size is not None and mode == VALID and type(metric_term) == tuple:
+            str_err = "{}_{}_hist from Metrics returns {}, while from manual sliding window returns {}"
+            def construct_win(name):
+                _unfold = np.zeros((window_size, l))
+                for w in range(window_size):
+                    _unfold[w, w:] = getattr(self, name)[w:]
+                return _unfold
+            assert metric_term[0] in self.names_acc_fields
+            n_unfold = construct_win(metric_term[0])
+            ep_best_manual = eval(f"n_unfold.mean(axis=0).arg{metric_term[1]}()")
+            n_best_manual = n_unfold.mean(axis=0)[ep_best_manual]
+            assert n_best_manual == getattr(self, f'{metric_term[0]}_{metric_term[1]}_hist'), \
+                str_err.format(
+                    metric_term[0], 
+                    metric_term[1], 
+                    getattr(self, f'{metric_term[0]}_{metric_term[1]}_hist'), n_best_manual
+                )
+            # check the rest of metrics by ep_best_manual
+            loss_min_manual = construct_win('loss').mean(axis=0)[ep_best_manual]
+            assert loss_min_manual == self.loss_min_hist, str_err.format(
+                'loss', 'min', self.loss_min_hist, loss_min_manual
+            )
             for n in self.names_acc_fields:
-                assert getattr(self, f"{n}_max_hist") == max(getattr(self, f"{n}")[:-1])
-
+                n_max_manual = construct_win(n).mean(axis=0)[ep_best_manual]
+                assert n_max_manual == getattr(self, f'{n}_max_hist'), str_err.format(
+                    n, 'max', getattr(self, f'{n}_max_hist'), n_max_manual
+                )
 
 
 class LoggerBase:
     """
     Base class for logger. Handles printing, saving, loading, logging, summarizing result, etc. 
     """
-    style_mode = {TRAIN     : None, 
-                  VALID     : 'green', 
-                  TEST      : 'yellow'}
-    style_metric = {'loss'  : None,
-                    'acc'   : 'underline'}
-    style_status = {'running'   : None,
-                    'final'     : 'bold'}
+    style_mode = {
+        TRAIN   : None, 
+        VALID   : 'green', 
+        TEST    : 'yellow'
+    }
+    style_metric = {
+        'loss'  : None,
+        'acc'   : 'underline'
+    }
+    style_status = {
+        'running'   : None,
+        'final'     : 'bold'
+    }
     def __init__(
-            self, 
-            task : str,
-            config_dict : dict, 
-            dir_log : str, 
-            metric : Metrics, 
-            no_log : bool=False, 
-            log_test_convergence : int=-1, 
-            timestamp : str="",
-            period_batch_train : int=1,
-            no_pbar : bool=False
-        ):
+        self, 
+        task: str,
+        config_dict: dict, 
+        dir_log: str, 
+        metric: Metrics, 
+        config_term: dict,
+        no_log: bool=False, 
+        log_test_convergence: int=-1, 
+        timestamp: str="",
+        period_batch_train: int=1,
+        no_pbar: bool=False,
+        **kwargs
+    ):
         self.task = task
-        self.no_pbar = no_pbar
+        self.term_window_size = config_term['window_size']
+        self.term_window_aggr = config_term['window_aggr']
+        self.no_pbar, self.no_log = no_pbar, no_log
         self.dir_log = dir_log
         self.timestamp = timestamp
+        self.model_candy = {}           # {ep: model} store the candidate models within the current window
+        self.optim_candy = {}           # {ep: optim} store the candidate optimizers within the current window
         self.path_saver = {
-                'model'     : f"{dir_log}/saved_model_{timestamp}.pkl",
-                'optimizer' : f"{dir_log}/saved_optimizer_{timestamp}.pkl"
-            }
+            k: f"{dir_log}/saved_{k}_{timestamp}.pkl" for k in ['model', 'optimizer']
+        }
         self.path_loader = {'model' : None, "optimizer" : None}
         self.metric = metric
         self.log_test_convergence = log_test_convergence
-        assert self.metric.name in ["f1", "auc", "accuracy", "accuracy_ogb"]
+        assert self.metric.name in [
+            "f1", "auc", "accuracy", "accuracy_ogb", 'hits20', 'hits50', 'hits100'
+        ]
         self.config_dict = config_dict
-        self.file_ep = {TRAIN   : f"{dir_log}/epoch_train.csv",
-                        VALID   : f"{dir_log}/epoch_valid.csv",
-                        TEST    : f"{dir_log}/epoch_test.csv"}
+        self.file_ep = {m: f"{dir_log}/epoch_{MODE2STR[m]}.csv" for m in [TRAIN, VALID, TEST]}
         self.file_final = f"{dir_log}/final.csv"
-        self.no_log = no_log
 
-        self.info_batch = {TRAIN    : InfoBatch(PERIOD_LOG=period_batch_train),
-                           VALID    : InfoBatch(PERIOD_LOG=1),
-                           TEST     : InfoBatch(PERIOD_LOG=1)}
-        self.info_epoch = {TRAIN    : InfoEpoch(_metric_acc=self.metric.name),
-                           VALID    : InfoEpoch(_metric_acc=self.metric.name),
-                           TEST     : InfoEpoch(_metric_acc=self.metric.name)}
+        self.info_batch = {
+            TRAIN: InfoBatch(PERIOD_LOG=period_batch_train),
+            VALID: InfoBatch(PERIOD_LOG=1),
+            TEST : InfoBatch(PERIOD_LOG=1)
+        }
+        self.info_epoch = {
+            m: InfoEpoch(_metric_acc=self.metric.name) for m in [TRAIN, VALID, TEST]
+        }
         self.acc_final = {}
         self.pbar = None
 
@@ -185,9 +223,7 @@ class LoggerBase:
         self.info_batch = {TRAIN    : InfoBatch(PERIOD_LOG=self.info_batch[TRAIN].PERIOD_LOG),
                            VALID    : InfoBatch(PERIOD_LOG=1),
                            TEST     : InfoBatch(PERIOD_LOG=1)}
-        self.info_epoch = {TRAIN    : InfoEpoch(_metric_acc=self.metric.name),
-                           VALID    : InfoEpoch(_metric_acc=self.metric.name),
-                           TEST     : InfoEpoch(_metric_acc=self.metric.name)}
+        self.info_epoch = {m: InfoEpoch(_metric_acc=self.metric.name) for m in [TRAIN, VALID, TEST]}
 
     def set_loader_path(self, dir_loader):
         """
@@ -219,10 +255,10 @@ class LoggerBase:
         if type(msg) == str:
             subs = f"{_str_style}{msg}{_bcolors['']}"
         elif type(msg) == list:     # list of tuple in the form of [(msg1, style1), (msg2, style2)]
-            subs = ''.join((f"{_bcolors[se]}{_str_style}"
-                            f"{m}"
-                            f"{_bcolors['']}") 
-                                for m, se in msg)
+            subs = ''.join(
+                f"{_bcolors[se]}{_str_style}{m}{_bcolors['']}" 
+                for m, se in msg
+            )
         else:
             raise NotImplementedError
         return f"{subs}{ending}"
@@ -232,23 +268,50 @@ class LoggerBase:
         print(LoggerBase.stringf(msg, style=style, ending=''))
         
     def update_best_model(self, ep, model, optimizer=None):
+        """
+        Save the best model so far, flexibly based on the termination criteria. 
+        """
+        assert len(self.model_candy) <= self.term_window_size
+        if len(self.model_candy) == self.term_window_size:
+            # cleanup old model first, then store the most recent model
+            ep2pop = min(self.model_candy.keys())
+            assert ep2pop == ep - self.term_window_size
+            del self.model_candy[ep2pop]
+            del self.optim_candy[ep2pop]
+        self.model_candy[ep] = copy.deepcopy(model).cpu()
+        self.optim_candy[ep] = None if optimizer is None else self.model_candy[ep].optimizer
         _info_epoch = self.info_epoch[VALID]
+        assert _info_epoch.idx_epoch == ep
         _args = {"loss_all": _info_epoch.loss, "loss_min_hist": _info_epoch.loss_min_hist}
         for n in _info_epoch.names_acc_fields:
             _args[f"{n}_all"] = getattr(_info_epoch, f"{n}")
             _args[f"{n}_max_hist"] = getattr(_info_epoch, f"{n}_max_hist")
-        if self.metric.is_better(**_args):      # can define your own criteria of saving models
-            assert _info_epoch.idx_epoch == ep
-            _info_epoch.epoch_best = ep
-            self.save_model(model, optimizer=optimizer)
-
-    def save_model(self, model, optimizer=None):
-        self.printf("  Saving model ...", style="yellow")
+        ret_is_better = self.metric.is_better(**_args)
+        if ret_is_better[0]:        # flag checking if metric improves
+            best_metrics = ret_is_better[1:]
+            _info_epoch.update_best_metrics(*best_metrics)
+            if self.term_window_aggr == 'center':
+                _info_epoch.epoch_best = max(0, ep - self.term_window_size + 1 + self.term_window_size // 2)
+            elif self.term_window_aggr.startswith('best_'):
+                _mtr_name = self.term_window_aggr[5:]
+                window = getattr(_info_epoch, _mtr_name)[-self.term_window_size : ]
+                _info_epoch.epoch_best = ep - len(window) + 1 + window.index(max(window))
+            elif self.term_window_size == 'last':
+                _info_epoch.epoch_best = ep
+            assert _info_epoch.epoch_best >= 0, "error in extracting epoch idx from sliding window"
+            self.save_model(
+                self.model_candy[_info_epoch.epoch_best], 
+                optimizer=self.optim_candy[_info_epoch.epoch_best], 
+                ep=_info_epoch.epoch_best
+            )
+            
+    def save_model(self, model, optimizer=None, ep=None) -> None:
+        self.printf(f"  Saving model {'' if ep is None else ep}...", style="yellow")
         torch.save(model.state_dict(), self.path_saver['model'])
         if optimizer is not None:
             torch.save(optimizer.state_dict(), self.path_saver['optimizer'])
         
-    def save_tensor(self, pytensor, fname : str, use_path_loader : bool):
+    def save_tensor(self, pytensor, fname: str, use_path_loader: bool) -> str:
         self.printf("  Saving tensor ...", style='yellow')
         _path = self.path_saver['model'] if not use_path_loader else self.path_loader['model']
         dir_save = '/'.join(_path.split('/')[:-1])
@@ -257,7 +320,7 @@ class LoggerBase:
         torch.save(pytensor, fname_full)
         return fname_full
 
-    def restore_model(self, model, optimizer=None, force_reload=False):
+    def restore_model(self, model, optimizer=None, force_reload=False) -> None:
         """
         NOTE: "restore" refers to the loading of model checkpoint of previous epochs.
             To load a model saved in the previous run, call `load_model()` instead. 
@@ -270,13 +333,13 @@ class LoggerBase:
         else:
             self.printf("  NOT restoring model ... PLS CHECK!")
     
-    def load_model(self, model, optimizer=None, copy=False):
+    def load_model(self, model, optimizer=None, copy=False, device=None) -> None:
         def gen_new_pt_name(dir_save_new, name):
             file_loaded = self.path_loader[name].split('/')[-1]
             return f"{dir_save_new}/{file_loaded.replace('saved', 'loaded')}"
         self.printf("  Loading model ...")
         dir_save_new = '/'.join(self.path_saver['model'].split('/')[:-1])
-        model.load_state_dict(torch.load(self.path_loader['model']))
+        model.load_state_dict(torch.load(self.path_loader['model'], map_location=device))
         file_loaded_model = gen_new_pt_name(dir_save_new, 'model')
         if copy:
             shutil.copyfile(self.path_loader['model'], file_loaded_model)
@@ -285,7 +348,7 @@ class LoggerBase:
             path_rel_model = os.path.relpath(self.path_loader['model'], dir_save_new)
             os.symlink(path_rel_model, file_loaded_model)
         if optimizer is not None:
-            optimizer.load_state_dict(torch.load(self.path_loader['optimizer']))
+            optimizer.load_state_dict(torch.load(self.path_loader['optimizer'], map_location=device))
             file_loaded_optm = gen_new_pt_name(dir_save_new, 'optimizer')
             if copy:
                 shutil.copyfile(self.path_loader['optimizer'], file_loaded_optm)
@@ -294,13 +357,15 @@ class LoggerBase:
                 os.symlink(path_rel_optm, file_loaded_optm)
 
 
-    def epoch_start_reset(self, ep, mode, total_nodes):
+    def epoch_start_reset(self, ep, mode, total_entity):
         self.info_epoch[mode].idx_epoch += 1
         assert self.info_epoch[mode].idx_epoch == ep, "Out of sync of epoch idx between trainer and logger!"
-        self.info_batch[mode].reset(total_nodes)
+        self.info_batch[mode].reset(total_entity)
         if not self.no_pbar:
-            self.pbar = tqdm(total=total_nodes, leave=False, file=sys.stdout)
-            self.pbar.set_description(self.stringf(f"computing {MODE2STR[mode].upper()}", style=self.style_mode[mode]))
+            self.pbar = tqdm(total=total_entity, leave=False, file=sys.stdout)
+            self.pbar.set_description(
+                self.stringf(f"computing {MODE2STR[mode].upper()}", style=self.style_mode[mode])
+            )
 
         
     def init_log2file(self, status='running', meta_info=None):
@@ -366,7 +431,10 @@ class LoggerBase:
             for n in _info_epoch.names_acc_fields:
                 acc_ret[n] = getattr(_info_epoch, n)[-1]
                 msg_print.append((f"{n} = {acc_ret[n]:.5f}\t", self.style_metric['acc']))
-            msg_file_header = f'{_info_epoch.idx_epoch:4d}, '
+            if mode == TRAIN:
+                msg_file_header = f'{_info_epoch.idx_epoch:4d}, '
+            else:   # reference training epochs
+                msg_file_header = f'{_info_epoch.idx_epoch:4d} ({self.info_epoch[TRAIN].idx_epoch:4d}), '
             msg_file_ending = '\n'
         elif status == 'final':
             _info_epoch = self.info_epoch[mode]
@@ -398,7 +466,7 @@ class LoggerBase:
         with open(filename, write_mode) as f:
             f.write(logstr)
 
-    def update_batch(self, mode : str, idx_batch : int, info_batch : dict):
+    def update_batch(self, mode: str, idx_batch: int, info_batch: dict):
         size_batch = info_batch['batch_size']       # used by tqdm update
         self.info_batch[mode].add_one_batch(idx_batch, info_batch)
         if self.pbar is not None:
@@ -410,9 +478,14 @@ class LoggerBase:
         if self.pbar is not None:
             self.pbar.close()
 
-    def validate_result(self):
+    def validate_result(self, stochastic_sampler: dict):
         for m in [TRAIN, VALID, TEST]:
-            self.info_epoch[m].assert_valid()
+            self.info_epoch[m].assert_valid(
+                m, 
+                metric_term=self.metric.metric_term, 
+                window_size=self.term_window_size, 
+                stochastic_sampler=stochastic_sampler[m]
+            )
 
     def end_training(self, status):
         assert status in ['crashed', 'finished', 'killed']
@@ -432,7 +505,7 @@ class LoggerBase:
                     assert f_ymlpt[0].split('.')[-1] in ['yml', 'yaml'], \
                         f"DIR {self.dir_log} CONTAINS UNKNOWN TYPE OF FILE. ABORTING!"
                 else:
-                    assert len(f_ymlpt) == 2
+                    assert len(f_ymlpt) <= 3
                     assert all(os.path.isfile(f"{self.dir_log}/{f}") for f in f_ymlpt)
                     ext1 = ['yml', 'yaml']
                     ext2 = ['pkl', 'pt']

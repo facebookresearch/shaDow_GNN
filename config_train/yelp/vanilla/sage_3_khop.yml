@@ -1,0 +1,37 @@
+data:
+  to_undirected: True
+  transductive: False
+architecture:
+  dim: 256
+  aggr: sage
+  loss: sigmoid
+  num_layers: 3
+  act: elu
+  use_label: none
+  feature_augment: hops
+  feature_smoothen: none
+  label_smoothen: none
+  residue: none
+  pooling: center
+hyperparameter:
+  end: 100
+  lr: 0.0005
+  dropout: 0.1
+  dropedge: 0.0
+  batch_size: 16
+sampler:
+  - method: khop
+    phase: train
+    depth: [2]
+    budget: [20]
+
+# 5 runs:
+# best valid acc      best test acc       best val epoch
+#        0.65390            0.65450                   64
+#        0.65355            0.65408                   51
+#        0.65407            0.65449                   86
+#        0.65349            0.65390                   74
+#        0.65380            0.65403                   83
+# ------------------------------------------------------
+# avg:    0.6538             0.6542
+# std:    0.0002             0.0002

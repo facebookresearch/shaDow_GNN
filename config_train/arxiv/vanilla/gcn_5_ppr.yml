@@ -1,0 +1,39 @@
+data:
+  to_undirected: True
+  transductive: True
+architecture:
+  dim: 256
+  aggr: gcn
+  loss: softmax
+  num_layers: 5
+  act: elu
+  use_label: none
+  feature_augment: hops
+  feature_smoothen: none
+  label_smoothen: none
+  residue: none
+  pooling: center
+hyperparameter:
+  end: 50
+  lr: 0.00005
+  dropout: 0.2
+  dropedge: 0.1
+  batch_size: 32
+sampler:
+  - method: ppr
+    phase: train
+    k: [200]
+    threshold: [0.01]
+    epsilon: [1e-6]
+
+
+# 5 runs:
+# best valid acc      best test acc       best val epoch
+#        0.73164            0.72121                   43
+#        0.73257            0.71860                   46
+#        0.73278            0.72265                   43
+#        0.73271            0.72349                   43
+#        0.73261            0.71691                   42
+# ------------------------------------------------------
+# avg:    0.7325             0.7206
+# std:    0.0004             0.0025
