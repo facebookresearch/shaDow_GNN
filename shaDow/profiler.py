@@ -67,10 +67,10 @@ class SubgraphProfiler:
             if 'hops' in self.metrics['global']:
                 if 'hops' not in sb.feat_aug_ens[e]:
                     break
-            hops = sb.feat_aug_ens[e]['hops']
-            self.value_metrics['global'][e]['hops'].append(
-                self._profile_hops(hops, sb.size_subg_ens[e], 'global')
-            )
+                hops = sb.feat_aug_ens[e]['hops']
+                self.value_metrics['global'][e]['hops'].append(
+                    self._profile_hops(hops, sb.size_subg_ens[e], 'global')
+                )
             
     def summarize(self):
         ret = {md: [{} for _ in range(self.num_ens)] for md in self.MODES}

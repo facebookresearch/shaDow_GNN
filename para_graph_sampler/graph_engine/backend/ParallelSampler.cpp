@@ -384,10 +384,16 @@ SubgraphStruct ParallelSampler::_node_induced_subgraph(std::unordered_map<NodeTy
     ret_subg_info.indptr.push_back(0);
     NodeType idx_insert = -1;
     if (include_self_conn) {
-      auto idx_self_upper = std::upper_bound(graph_full.indices.begin() + idx_start, 
-                                            graph_full.indices.begin() + idx_end, v);
-      auto idx_self_lower = std::lower_bound(graph_full.indices.begin() + idx_start, 
-                                            graph_full.indices.begin() + idx_end, v);
+      auto idx_self_upper = std::upper_bound(
+        graph_full.indices.begin() + idx_start, 
+        graph_full.indices.begin() + idx_end, 
+        v
+      );
+      auto idx_self_lower = std::lower_bound(
+        graph_full.indices.begin() + idx_start, 
+        graph_full.indices.begin() + idx_end, 
+        v
+      );
       if (idx_self_upper == idx_self_lower) {
         idx_insert = idx_self_upper - graph_full.indices.begin();
       }
@@ -403,9 +409,14 @@ SubgraphStruct ParallelSampler::_node_induced_subgraph(std::unordered_map<NodeTy
         ret_subg_info.indptr[cnt_subg_nodes+1] ++;
         ret_subg_info.origEdgeID.push_back(-1);
         ret_subg_info.data.push_back(1.);
-      } else if (nodes_touched.find(neigh) != nodes_touched.end() && 
-          (include_target_conn || std::find(targets.begin(), targets.end(), v) == targets.end() 
-                               || std::find(targets.begin(), targets.end(), neigh) == targets.end())) {
+      } else if (
+        nodes_touched.find(neigh) != nodes_touched.end() && 
+        (
+          include_target_conn || 
+          std::find(targets.begin(), targets.end(), v) == targets.end() || 
+          std::find(targets.begin(), targets.end(), neigh) == targets.end()
+        )
+      ) {
         ret_subg_info.indices.push_back(orig2subID[neigh]);
         ret_subg_info.indptr[cnt_subg_nodes+1] ++;
         ret_subg_info.origEdgeID.push_back(e_adjusted);
