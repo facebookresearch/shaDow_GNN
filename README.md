@@ -10,8 +10,9 @@ Hanqing Zeng, Muhan Zhang, Yinglong Xia, Ajitesh Srivastava, Andrey Malevich, Ra
 
 ## News
 * Major updates (code refactoring; link prediction support; all training configs) released in Jan 2022. 
+* We thank the **DGL** team for including the shaDow [k-hop sampler](https://docs.dgl.ai/en/latest/api/python/dgl.dataloading.html#dgl.dataloading.shadow.ShaDowKHopSampler) in their library. 
 * shaDow-GNN paper accepted to **NeurIPS'21**!
-* We thank the **Pytorch Geometric** team for including the shaDow [k-hop sampler](https://pytorch-geometric.readthedocs.io/en/2.0.0/modules/loader.html?#torch_geometric.loader.ShaDowKHopSampler) in their library!
+* We thank the **Pytorch Geometric** team for including the shaDow [k-hop sampler](https://pytorch-geometric.readthedocs.io/en/2.0.0/modules/loader.html?#torch_geometric.loader.ShaDowKHopSampler) in their library. 
 
 ## Overview
 
