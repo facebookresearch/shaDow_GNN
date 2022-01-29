@@ -170,7 +170,7 @@ class MinibatchShallowExtractor:
         nocache_modes : set={*()},
         optm_level='high',
         seed_cpp=-1,
-        metrics_profile={'running': {}, 'global': {'hops'}},
+        metrics_profile={'running': {}, 'global': {'hops', 'sizes'}},
     ):
         self.optm_level = optm_level
         self.aug_feats = aug_feats

@@ -10,7 +10,7 @@ from typing import Dict, Set
 
 class SubgraphProfiler:
     MODES = {'running', 'global'}
-    KNOWN_METRICS = {'hops'}
+    KNOWN_METRICS = {'hops', 'sizes'}
     QUEUE_SIZE = 5
     def __init__(self, num_ens, metrics: Dict[str, Set[str]]):
         self.num_ens = num_ens
@@ -47,9 +47,25 @@ class SubgraphProfiler:
             offsets[0] = 0
             idx = torch.arange(hops.shape[0], device=hops.device)
             return F.embedding_bag(idx, hops, offsets, mode='sum')
-        elif mode == 'running':
+        else:
             raise NotImplementedError
             # return hops.sum(axis=0) / sizes_subg.shape(0)
+            
+    def _profile_sizes(
+        self, indptr, sizes_subg: torch.Tensor, mode: str
+    ):
+        if type(indptr) == np.ndarray:
+            indptr = torch.from_numpy(indptr).to(sizes_subg.device)
+        if mode == 'global':
+            assert sizes_subg.sum().item() == indptr.shape[0] - 1
+            idx_end = torch.cumsum(sizes_subg, 0).cpu()
+            num_edges_cum = indptr[idx_end]
+            num_edges_roll = torch.roll(num_edges_cum, 1)
+            num_edges_roll[0] = 0
+            num_edges = num_edges_cum - num_edges_roll
+            return torch.vstack((sizes_subg, num_edges)).t()
+        else:
+            raise NotImplementedError
       
     def _summarize_hops(self, vals, mode: str):
         if mode == 'global':
@@ -57,20 +73,38 @@ class SubgraphProfiler:
                 return []
             else:
                 return torch.cat(vals).mean(axis=0)
-        elif mode == 'running':
+        else:
             # No need to profile the running value of subgraph hops (global is more accurate)
+            return []
+    
+    def _summarize_sizes(self, vals, mode: str):
+        if mode == 'global':
+            if len(vals) == 0:
+                return []
+            else:
+                nm_all = torch.cat(vals)
+                deg = nm_all[:, 1] / nm_all[:, 0]
+                nm_deg_all = torch.hstack((nm_all, deg[:, np.newaxis]))
+                return nm_deg_all.mean(axis=0)
+        else:
             return []
 
     def profile(self) -> None:
         sb = self.subgraph_batch[-1]
         for e in range(self.num_ens):
-            if 'hops' in self.metrics['global']:
-                if 'hops' not in sb.feat_aug_ens[e]:
-                    break
-                hops = sb.feat_aug_ens[e]['hops']
-                self.value_metrics['global'][e]['hops'].append(
-                    self._profile_hops(hops, sb.size_subg_ens[e], 'global')
+            for mg in self.metrics['global']:
+                args = None
+                subg_sizes = sb.size_subg_ens[e]
+                if mg == 'hops' and mg in sb.feat_aug_ens[e]:
+                    hops = sb.feat_aug_ens[e]['hops']
+                    args = [hops, subg_sizes, 'global']
+                elif mg == 'sizes':
+                    adj = sb.adj_ens[e]
+                    args = [adj.indptr, subg_sizes, 'global']
+                self.value_metrics['global'][e][mg].append(
+                    getattr(self, f"_profile_{mg}")(*args)
                 )
+            # TODO handle local metrics
             
     def summarize(self):
         ret = {md: [{} for _ in range(self.num_ens)] for md in self.MODES}
@@ -105,6 +139,18 @@ class SubgraphProfiler:
         print(norm_vals)
         print("="*len(title))
     
+    def _print_summary_sizes(self, size_stats: torch.Tensor, mode: str):
+        if len(size_stats) == 0:
+            print("NO SIZES STAT COLLECTED")
+            return
+        title = "avg # nodes    avg # edges    avg deg"
+        value = f"{size_stats[0].item():>11.2f}    {size_stats[1].item():>11.2f}    {size_stats[2].item():>7.2f}"
+        print("="*len(title))
+        print(title)
+        print('-'*len(title))
+        print(value)
+        print("="*len(title))
+        
     def print_summary(self):
         if len(self.metrics['running']) > 0 or len(self.metrics['global']) > 0:
             str_title = "SUMMARY OF SUBG PROFILES"
@@ -114,8 +160,7 @@ class SubgraphProfiler:
         for md in self.MODES:
             for e in range(self.num_ens):
                 for k, v in ret[md][e].items():
-                    if k == 'hops':
-                        self._print_summary_hops(v, md)
+                    getattr(self, f"_print_summary_{k}")(v, md)
     
     def clear_metrics(self):
         self.metrics = {md: [] for md in self.MODES}
