@@ -101,9 +101,10 @@ class SubgraphProfiler:
                 elif mg == 'sizes':
                     adj = sb.adj_ens[e]
                     args = [adj.indptr, subg_sizes, 'global']
-                self.value_metrics['global'][e][mg].append(
-                    getattr(self, f"_profile_{mg}")(*args)
-                )
+                if args is not None:
+                    self.value_metrics['global'][e][mg].append(
+                        getattr(self, f"_profile_{mg}")(*args)
+                    )
             # TODO handle local metrics
             
     def summarize(self):
