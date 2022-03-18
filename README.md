@@ -4,7 +4,7 @@ Hanqing Zeng, Muhan Zhang, Yinglong Xia, Ajitesh Srivastava, Andrey Malevich, Ra
 
 **Contact**: Hanqing Zeng (zengh@usc.edu)
 
-[Latest version](https://arxiv.org/abs/2201.07858)
+[Latest version of the paper](https://arxiv.org/abs/2201.07858)
 
 (Note: There is an [old version](https://arxiv.org/abs/2012.01380) named "Deep Graph Neural Networks with Shallow Subgraph Samplers". Please only refer to the new version and disgard the old one. )
 
@@ -18,7 +18,7 @@ Hanqing Zeng, Muhan Zhang, Yinglong Xia, Ajitesh Srivastava, Andrey Malevich, Ra
 
 We propose a design principle of "decoupling the depth and scope" when constructing GNN models. This is a simple way to **surpass 1-WL**, **overcome oversmoothing** and **avoid neighborhood explosion** at the same time. 
 
-We call the practical implementation of our design principle as **shaDow-GNN**. 
+We call the practical implementation of our design principle as **shaDow-GNN** (**D**eep GNNs on **sha**ll**ow** subgraphs). 
 
 This repo implements: 
 * 6 backbone message passing layers (GCN, GraphSAGE, GIN, GAT, JK-Net, SGC)
@@ -35,7 +35,7 @@ This repo supports:
 
 The training pipeline of shaDow-GNN can be abstracted as three major steps: 
 
-### Preprocessing
+### Preprocessing (optional)
 
 <details><summary>Expand to see details...</summary>
 <p>
@@ -58,7 +58,7 @@ For any nodes `u` and `v` in the same batch, we treat the two subgraphs as compl
 
 **Note**: unlike other graph sampling based methods, shaDow-GNN allows much smaller batch size (can be as small as 1) since the subgraph degree of shaDow-GNN does not drop with batch size. This property makes shaDow-GNN easily portable on GPUs of limited memory. 
 
-### Postprocessing
+### Postprocessing (optional)
 
 <details><summary>Expand to see details...</summary>
 <p>
